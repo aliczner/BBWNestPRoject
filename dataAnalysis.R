@@ -80,4 +80,61 @@ landLookup <- tibble (
 all_modis_labeled <- all_modis_data %>%
   left_join(landLookup, by = "value")
 
-data_final <- all_modis_labeled
+data_final <- all_modis_labeled %>% 
+  # Remove the entire row if "remove" or "private submission" appears anywhere
+  filter(!if_any(where(is.character), 
+                 ~ str_detect(coalesce(., "NA"),
+                              regex("remove|private submission", 
+                                    ignore_case = TRUE)))) %>%
+  # standardise text capitalisation for position 
+  mutate(position = str_to_lower(position))
+
+write.csv("data_final", "BBWdata.csv")
+
+#==========================================================
+# creating summary tables
+#=========================================================
+library(gt)
+
+# Define the function
+export_nest_table <- function(data, ..., file_name) {
+  
+  # Capture how many variables were passed
+  vars <- enquos(...)
+  
+  # Process data: count, pivot wider with a separator, calculate totals
+  processed_data <- data %>%
+    count(specificEpithet, ...) %>%
+    pivot_wider(
+      names_from = c(...), 
+      values_from = n, 
+      values_fill = 0, 
+      names_sep = "___"
+    ) %>%
+    mutate(Total = rowSums(across(where(is.numeric)))) %>%
+    bind_rows(
+      summarise(., across(where(is.numeric), sum), across(where(is.character), ~ "Total"))
+    )
+  
+  # Build the gt table
+  table_obj <- processed_data %>% gt()
+  
+  # If multiple variables were passed, add hierarchical spanner headers automatically
+  if (length(vars) > 1) {
+    table_obj <- table_obj %>% tab_spanner_delim(delim = "___")
+  }
+  
+  # Save to Word
+  table_obj %>% gtsave(file_name)
+  message("Successfully saved: ", file_name)
+}
+
+export_nest_table(data_final, landcover, 
+                  file_name = "speciesLandcover.docx")
+export_nest_table(data_final, position, 
+                  file_name = "speciesPosition.docx")
+export_nest_table(data_final, nestCategory, 
+                  file_name =  "speciesNestCategory.docx")
+export_nest_table(data_final, nestCategory, nestDescription,
+                  file_name = "speciesCategoryDescription.docx")
+export_nest_table(data_final, )
